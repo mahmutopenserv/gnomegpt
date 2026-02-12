@@ -1,13 +1,13 @@
 package com.gnomegpt;
 
 import com.gnomegpt.chat.ChatMessage;
-import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.LineBorder;
+import javax.swing.border.MatteBorder;
 import javax.swing.text.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -21,6 +21,9 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * RuneScape-themed chat panel for GnomeGPT.
+ */
 public class GnomeGptPanel extends PluginPanel
 {
     private final GnomeGptPlugin plugin;
@@ -31,19 +34,27 @@ public class GnomeGptPanel extends PluginPanel
     private final JLabel statusLabel;
     private final String PLACEHOLDER = "Ask GnomeGPT anything...";
 
-    // Current streaming bubble state
+    // Streaming state
     private JTextPane streamingPane;
     private JPanel streamingBubble;
 
-    private static final Color USER_BG = new Color(0x2D, 0x50, 0x3C);
-    private static final Color GNOME_BG = new Color(0x2B, 0x3A, 0x52);
-    private static final Color ERROR_BG = new Color(0x52, 0x2B, 0x2B);
-    private static final Color TEXT_COLOR = new Color(0xE0, 0xE0, 0xE0);
-    private static final Color LINK_COLOR = new Color(0x7D, 0xC8, 0xFF);
-    private static final Color DIM_COLOR = new Color(0x90, 0x90, 0x90);
-    private static final Color BOLD_COLOR = new Color(0xFF, 0xFF, 0xFF);
-    private static final Color HEADER_BG = new Color(0x1B, 0x1B, 0x2B);
-    private static final Color ACCENT = new Color(0xA0, 0xD0, 0xFF);
+    // === RuneScape Color Palette ===
+    // Chat background: dark brown stone
+    private static final Color RS_BG_DARK = new Color(0x30, 0x28, 0x1C);
+    private static final Color RS_BG_MID = new Color(0x3E, 0x35, 0x29);
+    private static final Color RS_BG_LIGHT = new Color(0x4A, 0x40, 0x30);
+
+    // Chat text colors (from RS chatbox)
+    private static final Color RS_YELLOW = new Color(0xFF, 0xFF, 0x00);        // Standard chat
+    private static final Color RS_CYAN = new Color(0x00, 0xFF, 0xFF);          // Player name
+    private static final Color RS_GREEN = new Color(0x00, 0xFF, 0x00);         // Tradeable items
+    private static final Color RS_BLUE = new Color(0x00, 0x80, 0xFF);          // Links
+    private static final Color RS_WHITE = new Color(0xFF, 0xFF, 0xFF);         // Bold/headers
+    private static final Color RS_ORANGE = new Color(0xFF, 0x98, 0x10);        // NPC dialogue
+    private static final Color RS_RED = new Color(0xFF, 0x30, 0x30);           // Errors
+    private static final Color RS_GREY = new Color(0x9F, 0x96, 0x87);          // Dim text
+    private static final Color RS_BORDER = new Color(0x5C, 0x50, 0x3C);        // Border color
+    private static final Color RS_BORDER_DARK = new Color(0x25, 0x20, 0x18);   // Outer border
 
     private static final Pattern URL_PATTERN = Pattern.compile(
         "(https?://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+)"
@@ -52,8 +63,6 @@ public class GnomeGptPanel extends PluginPanel
         "\\[\\[([^\\]]+)\\]\\]"
     );
     private static final Pattern BOLD_PATTERN = Pattern.compile("\\*\\*(.+?)\\*\\*");
-    private static final Pattern BULLET_PATTERN = Pattern.compile("^\\s*[-•]\\s+", Pattern.MULTILINE);
-    private static final Pattern NUMBERED_PATTERN = Pattern.compile("^\\s*(\\d+)\\.\\s+", Pattern.MULTILINE);
 
     public GnomeGptPanel(GnomeGptPlugin plugin)
     {
@@ -61,67 +70,79 @@ public class GnomeGptPanel extends PluginPanel
         this.plugin = plugin;
 
         setLayout(new BorderLayout());
-        setBackground(ColorScheme.DARK_GRAY_COLOR);
+        setBackground(RS_BG_DARK);
 
-        // Header
+        // === Header (styled like RS interface title) ===
         JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(HEADER_BG);
-        headerPanel.setBorder(new EmptyBorder(6, 10, 6, 10));
-        headerPanel.setPreferredSize(new Dimension(0, 32));
+        headerPanel.setBackground(RS_BG_MID);
+        headerPanel.setBorder(new CompoundBorder(
+            new MatteBorder(0, 0, 2, 0, RS_BORDER),
+            new EmptyBorder(5, 8, 5, 8)
+        ));
+        headerPanel.setPreferredSize(new Dimension(0, 30));
 
-        JLabel titleLabel = new JLabel("\uD83E\uDDD2 GnomeGPT");
-        titleLabel.setForeground(ACCENT);
-        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 13f));
+        JLabel titleLabel = new JLabel("GnomeGPT");
+        titleLabel.setForeground(RS_ORANGE);
+        titleLabel.setFont(new Font("SansSerif", Font.BOLD, 13));
         headerPanel.add(titleLabel, BorderLayout.WEST);
 
         JButton clearButton = new JButton("Clear");
-        clearButton.setFont(clearButton.getFont().deriveFont(10f));
+        clearButton.setFont(new Font("SansSerif", Font.PLAIN, 10));
         clearButton.setFocusPainted(false);
-        clearButton.setMargin(new Insets(2, 6, 2, 6));
+        clearButton.setBackground(RS_BG_LIGHT);
+        clearButton.setForeground(RS_YELLOW);
+        clearButton.setBorder(new CompoundBorder(
+            new LineBorder(RS_BORDER, 1),
+            new EmptyBorder(2, 6, 2, 6)
+        ));
+        clearButton.setMargin(new Insets(1, 4, 1, 4));
         clearButton.addActionListener(e -> plugin.clearChat());
         headerPanel.add(clearButton, BorderLayout.EAST);
 
         add(headerPanel, BorderLayout.NORTH);
 
-        // Chat area
+        // === Chat area (RS chatbox style) ===
         chatContainer = new JPanel();
         chatContainer.setLayout(new BoxLayout(chatContainer, BoxLayout.Y_AXIS));
-        chatContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-        chatContainer.setBorder(new EmptyBorder(6, 6, 6, 6));
+        chatContainer.setBackground(RS_BG_DARK);
+        chatContainer.setBorder(new EmptyBorder(4, 4, 4, 4));
 
         scrollPane = new JScrollPane(chatContainer);
         scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setBorder(new LineBorder(RS_BORDER_DARK, 1));
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        scrollPane.getViewport().setBackground(RS_BG_DARK);
         add(scrollPane, BorderLayout.CENTER);
 
-        // Bottom: status + input
+        // === Bottom: status + input (RS style input box) ===
         JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+        bottomPanel.setBackground(RS_BG_DARK);
 
         statusLabel = new JLabel(" ");
-        statusLabel.setForeground(DIM_COLOR);
-        statusLabel.setFont(statusLabel.getFont().deriveFont(10f));
-        statusLabel.setBorder(new EmptyBorder(2, 8, 2, 8));
+        statusLabel.setForeground(RS_GREY);
+        statusLabel.setFont(new Font("SansSerif", Font.ITALIC, 10));
+        statusLabel.setBorder(new EmptyBorder(2, 6, 2, 6));
         bottomPanel.add(statusLabel, BorderLayout.NORTH);
 
-        JPanel inputPanel = new JPanel(new BorderLayout(4, 0));
-        inputPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-        inputPanel.setBorder(new EmptyBorder(6, 6, 6, 6));
+        JPanel inputPanel = new JPanel(new BorderLayout(3, 0));
+        inputPanel.setBackground(RS_BG_MID);
+        inputPanel.setBorder(new CompoundBorder(
+            new MatteBorder(2, 0, 0, 0, RS_BORDER),
+            new EmptyBorder(5, 5, 5, 5)
+        ));
 
         inputField = new JTextField();
-        inputField.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-        inputField.setForeground(DIM_COLOR);
-        inputField.setCaretColor(TEXT_COLOR);
+        inputField.setBackground(RS_BG_DARK);
+        inputField.setForeground(RS_GREY);
+        inputField.setCaretColor(RS_YELLOW);
         inputField.setText(PLACEHOLDER);
         inputField.setBorder(new CompoundBorder(
-            new LineBorder(ColorScheme.MEDIUM_GRAY_COLOR, 1),
-            new EmptyBorder(4, 6, 4, 6)
+            new LineBorder(RS_BORDER, 1),
+            new EmptyBorder(3, 5, 3, 5)
         ));
         inputField.setFont(new Font("SansSerif", Font.PLAIN, 12));
 
-        // Placeholder behavior
         inputField.addFocusListener(new FocusAdapter()
         {
             @Override
@@ -130,7 +151,7 @@ public class GnomeGptPanel extends PluginPanel
                 if (inputField.getText().equals(PLACEHOLDER))
                 {
                     inputField.setText("");
-                    inputField.setForeground(TEXT_COLOR);
+                    inputField.setForeground(RS_YELLOW);
                 }
             }
 
@@ -140,7 +161,7 @@ public class GnomeGptPanel extends PluginPanel
                 if (inputField.getText().isEmpty())
                 {
                     inputField.setText(PLACEHOLDER);
-                    inputField.setForeground(DIM_COLOR);
+                    inputField.setForeground(RS_GREY);
                 }
             }
         });
@@ -154,7 +175,13 @@ public class GnomeGptPanel extends PluginPanel
 
         sendButton = new JButton("Send");
         sendButton.setFocusPainted(false);
-        sendButton.setMargin(new Insets(4, 8, 4, 8));
+        sendButton.setBackground(RS_BG_LIGHT);
+        sendButton.setForeground(RS_YELLOW);
+        sendButton.setBorder(new CompoundBorder(
+            new LineBorder(RS_BORDER, 1),
+            new EmptyBorder(3, 8, 3, 8)
+        ));
+        sendButton.setFont(new Font("SansSerif", Font.BOLD, 11));
         sendButton.addActionListener(e -> sendMessage());
 
         inputPanel.add(inputField, BorderLayout.CENTER);
@@ -163,8 +190,13 @@ public class GnomeGptPanel extends PluginPanel
 
         add(bottomPanel, BorderLayout.SOUTH);
 
-        // Welcome
-        addBubble("Your OSRS companion. Ask me anything, or type /help.\nSet your API key in plugin settings to get started.", GNOME_BG, "GnomeGPT");
+        // Welcome message
+        addWelcome();
+    }
+
+    private void addWelcome()
+    {
+        addChatLine("GnomeGPT", RS_ORANGE, "Ask me anything about OSRS. Type /help for commands.", RS_YELLOW);
     }
 
     private void sendMessage()
@@ -173,7 +205,7 @@ public class GnomeGptPanel extends PluginPanel
         if (!text.isEmpty() && !text.equals(PLACEHOLDER))
         {
             inputField.setText("");
-            inputField.setForeground(TEXT_COLOR);
+            inputField.setForeground(RS_YELLOW);
             plugin.sendMessage(text);
         }
     }
@@ -185,56 +217,60 @@ public class GnomeGptPanel extends PluginPanel
             switch (message.getRole())
             {
                 case USER:
-                    addBubble(message.getContent(), USER_BG, "You");
+                    addChatLine("You", RS_CYAN, message.getContent(), RS_YELLOW);
                     break;
                 case ASSISTANT:
                     boolean isError = message.getContent().startsWith("Error:") ||
                                       message.getContent().startsWith("Something went wrong:");
-                    addBubble(message.getContent(), isError ? ERROR_BG : GNOME_BG, "GnomeGPT");
+                    addFormattedChatLine("GnomeGPT", RS_ORANGE,
+                        message.getContent(), isError ? RS_RED : RS_YELLOW);
                     break;
             }
             scrollToBottom();
         });
     }
 
-    /**
-     * Start a streaming response bubble. Tokens will be appended via appendStreamToken().
-     */
+    // === Streaming ===
+
     public void startStreamingBubble()
     {
         SwingUtilities.invokeLater(() ->
         {
-            streamingBubble = createBubbleShell(GNOME_BG, "GnomeGPT");
-            streamingPane = createTextPane();
+            streamingBubble = new JPanel(new BorderLayout());
+            streamingBubble.setBackground(RS_BG_DARK);
+            streamingBubble.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 8, Integer.MAX_VALUE));
+            streamingBubble.setAlignmentX(Component.LEFT_ALIGNMENT);
+            streamingBubble.setBorder(new EmptyBorder(1, 2, 1, 2));
 
-            // Show typing indicator
+            // Name label
+            JLabel nameLabel = new JLabel("GnomeGPT: ");
+            nameLabel.setForeground(RS_ORANGE);
+            nameLabel.setFont(new Font("SansSerif", Font.BOLD, 12));
+            streamingBubble.add(nameLabel, BorderLayout.NORTH);
+
+            streamingPane = createTextPane();
             StyledDocument doc = streamingPane.getStyledDocument();
             SimpleAttributeSet dimAttrs = new SimpleAttributeSet();
-            StyleConstants.setForeground(dimAttrs, DIM_COLOR);
+            StyleConstants.setForeground(dimAttrs, RS_GREY);
             StyleConstants.setItalic(dimAttrs, true);
             StyleConstants.setFontSize(dimAttrs, 12);
             try { doc.insertString(0, "thinking...", dimAttrs); } catch (BadLocationException e) {}
 
             streamingBubble.add(streamingPane, BorderLayout.CENTER);
             chatContainer.add(streamingBubble);
-            chatContainer.add(Box.createVerticalStrut(4));
+            chatContainer.add(Box.createVerticalStrut(2));
             chatContainer.revalidate();
             scrollToBottom();
         });
     }
 
-    /**
-     * Append a token to the streaming bubble.
-     */
     public void appendStreamToken(String token)
     {
         SwingUtilities.invokeLater(() ->
         {
             if (streamingPane == null) return;
-
             StyledDocument doc = streamingPane.getStyledDocument();
 
-            // On first real token, clear the "thinking..." text
             try
             {
                 String current = doc.getText(0, doc.getLength());
@@ -246,33 +282,26 @@ public class GnomeGptPanel extends PluginPanel
             catch (BadLocationException e) {}
 
             SimpleAttributeSet attrs = new SimpleAttributeSet();
-            StyleConstants.setForeground(attrs, TEXT_COLOR);
+            StyleConstants.setForeground(attrs, RS_YELLOW);
             StyleConstants.setFontFamily(attrs, "SansSerif");
             StyleConstants.setFontSize(attrs, 12);
 
-            try
-            {
-                doc.insertString(doc.getLength(), token, attrs);
-            }
+            try { doc.insertString(doc.getLength(), token, attrs); }
             catch (BadLocationException e) {}
 
             scrollToBottom();
         });
     }
 
-    /**
-     * Finalize the streaming bubble — re-render with full formatting (links, bold, etc).
-     */
     public void finalizeStreamBubble(String fullText)
     {
         SwingUtilities.invokeLater(() ->
         {
             if (streamingBubble == null || streamingPane == null) return;
 
-            // Replace the streaming pane with a properly formatted one
             streamingBubble.remove(streamingPane);
             JTextPane formatted = createTextPane();
-            appendFormattedText(formatted, fullText);
+            appendFormattedText(formatted, fullText, RS_YELLOW);
             streamingBubble.add(formatted, BorderLayout.CENTER);
 
             streamingBubble.revalidate();
@@ -301,49 +330,87 @@ public class GnomeGptPanel extends PluginPanel
             chatContainer.removeAll();
             streamingPane = null;
             streamingBubble = null;
-            addBubble("Chat cleared.", GNOME_BG, "GnomeGPT");
+            addChatLine("GnomeGPT", RS_ORANGE, "Chat cleared.", RS_GREY);
             chatContainer.revalidate();
             chatContainer.repaint();
         });
     }
 
-    // --- Private helpers ---
+    // === Private helpers ===
 
-    private void addBubble(String text, Color bgColor, String sender)
+    /**
+     * Add a simple chat line: "Name: message"
+     */
+    private void addChatLine(String sender, Color nameColor, String text, Color textColor)
     {
-        JPanel bubble = createBubbleShell(bgColor, sender);
-        JTextPane textPane = createTextPane();
-        appendFormattedText(textPane, text);
-        bubble.add(textPane, BorderLayout.CENTER);
+        JPanel line = new JPanel(new BorderLayout());
+        line.setBackground(RS_BG_DARK);
+        line.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 8, Integer.MAX_VALUE));
+        line.setAlignmentX(Component.LEFT_ALIGNMENT);
+        line.setBorder(new EmptyBorder(1, 2, 1, 2));
 
-        chatContainer.add(bubble);
-        chatContainer.add(Box.createVerticalStrut(4));
+        JTextPane pane = createTextPane();
+        StyledDocument doc = pane.getStyledDocument();
+
+        // Sender
+        SimpleAttributeSet nameAttrs = new SimpleAttributeSet();
+        StyleConstants.setForeground(nameAttrs, nameColor);
+        StyleConstants.setBold(nameAttrs, true);
+        StyleConstants.setFontFamily(nameAttrs, "SansSerif");
+        StyleConstants.setFontSize(nameAttrs, 12);
+
+        SimpleAttributeSet textAttrs = new SimpleAttributeSet();
+        StyleConstants.setForeground(textAttrs, textColor);
+        StyleConstants.setFontFamily(textAttrs, "SansSerif");
+        StyleConstants.setFontSize(textAttrs, 12);
+
+        try
+        {
+            doc.insertString(doc.getLength(), sender + ": ", nameAttrs);
+            doc.insertString(doc.getLength(), text, textAttrs);
+        }
+        catch (BadLocationException e) {}
+
+        addLinkHandlers(pane, doc);
+        line.add(pane, BorderLayout.CENTER);
+
+        chatContainer.add(line);
+        chatContainer.add(Box.createVerticalStrut(2));
         chatContainer.revalidate();
     }
 
-    private JPanel createBubbleShell(Color bgColor, String sender)
+    /**
+     * Add a formatted chat line with wiki links, bold, etc.
+     */
+    private void addFormattedChatLine(String sender, Color nameColor, String text, Color textColor)
     {
-        JPanel bubble = new JPanel(new BorderLayout());
-        bubble.setBackground(bgColor);
-        bubble.setBorder(new CompoundBorder(
-            new EmptyBorder(2, 0, 2, 0),
-            new CompoundBorder(
-                new LineBorder(bgColor.darker(), 1, true),
-                new EmptyBorder(6, 8, 6, 8)
-            )
-        ));
+        JPanel line = new JPanel(new BorderLayout());
+        line.setBackground(RS_BG_DARK);
+        line.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 8, Integer.MAX_VALUE));
+        line.setAlignmentX(Component.LEFT_ALIGNMENT);
+        line.setBorder(new EmptyBorder(1, 2, 1, 2));
 
-        JLabel senderLabel = new JLabel(sender);
-        senderLabel.setForeground(sender.equals("You")
-            ? new Color(0x60, 0xD0, 0x80) : ACCENT);
-        senderLabel.setFont(senderLabel.getFont().deriveFont(Font.BOLD, 11f));
-        senderLabel.setBorder(new EmptyBorder(0, 0, 3, 0));
-        bubble.add(senderLabel, BorderLayout.NORTH);
+        JTextPane pane = createTextPane();
+        StyledDocument doc = pane.getStyledDocument();
 
-        bubble.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 12, Integer.MAX_VALUE));
-        bubble.setAlignmentX(Component.LEFT_ALIGNMENT);
+        // Sender
+        SimpleAttributeSet nameAttrs = new SimpleAttributeSet();
+        StyleConstants.setForeground(nameAttrs, nameColor);
+        StyleConstants.setBold(nameAttrs, true);
+        StyleConstants.setFontFamily(nameAttrs, "SansSerif");
+        StyleConstants.setFontSize(nameAttrs, 12);
 
-        return bubble;
+        try { doc.insertString(doc.getLength(), sender + ": ", nameAttrs); }
+        catch (BadLocationException e) {}
+
+        // Formatted content
+        appendFormattedText(pane, text, textColor);
+        addLinkHandlers(pane, doc);
+
+        line.add(pane, BorderLayout.CENTER);
+        chatContainer.add(line);
+        chatContainer.add(Box.createVerticalStrut(2));
+        chatContainer.revalidate();
     }
 
     private JTextPane createTextPane()
@@ -353,30 +420,27 @@ public class GnomeGptPanel extends PluginPanel
         pane.setOpaque(false);
         pane.setFont(new Font("SansSerif", Font.PLAIN, 12));
         pane.setBorder(null);
-        pane.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 30, Integer.MAX_VALUE));
+        pane.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 16, Integer.MAX_VALUE));
         return pane;
     }
 
-    private void appendFormattedText(JTextPane pane, String text)
+    private void appendFormattedText(JTextPane pane, String text, Color baseColor)
     {
         StyledDocument doc = pane.getStyledDocument();
-
-        // 1. Convert [[wiki terms]] to clickable text
-        // 2. Handle **bold**
-        // 3. Handle bullet points
-        // 4. Handle URLs
-
-        // First pass: convert wiki links and track positions
-        text = processWikiLinks(text);
-
-        // Split into segments by **bold** markers
         List<TextSegment> segments = parseMarkdown(text);
 
         for (TextSegment seg : segments)
         {
             if (seg.isLink)
             {
-                appendLinkSegment(doc, seg.text, seg.url, pane);
+                SimpleAttributeSet linkAttrs = new SimpleAttributeSet();
+                StyleConstants.setForeground(linkAttrs, RS_BLUE);
+                StyleConstants.setUnderline(linkAttrs, true);
+                StyleConstants.setFontFamily(linkAttrs, "SansSerif");
+                StyleConstants.setFontSize(linkAttrs, 12);
+                linkAttrs.addAttribute("url", seg.url);
+                try { doc.insertString(doc.getLength(), seg.text, linkAttrs); }
+                catch (BadLocationException e) {}
             }
             else
             {
@@ -387,51 +451,34 @@ public class GnomeGptPanel extends PluginPanel
                 if (seg.isBold)
                 {
                     StyleConstants.setBold(attrs, true);
-                    StyleConstants.setForeground(attrs, BOLD_COLOR);
+                    StyleConstants.setForeground(attrs, RS_WHITE);
                 }
                 else if (seg.isBullet)
                 {
-                    StyleConstants.setForeground(attrs, new Color(0xFF, 0xD7, 0x00));
+                    StyleConstants.setForeground(attrs, RS_GREEN);
                 }
                 else
                 {
-                    StyleConstants.setForeground(attrs, TEXT_COLOR);
+                    StyleConstants.setForeground(attrs, baseColor);
                 }
 
                 try { doc.insertString(doc.getLength(), seg.text, attrs); }
                 catch (BadLocationException e) {}
             }
         }
-
-        // Add link click handler
-        addLinkHandlers(pane, doc);
-    }
-
-    /**
-     * Process [[wiki links]] into plain text + track for later linking.
-     * Returns text with wiki terms as plain text (linking done in segment parsing).
-     */
-    private String processWikiLinks(String text)
-    {
-        // We'll handle wiki links in the segment parser
-        return text;
     }
 
     private List<TextSegment> parseMarkdown(String text)
     {
         List<TextSegment> segments = new ArrayList<>();
 
-        // Process the text character by character, handling patterns
-        // First, find all wiki links, URLs, and bold regions
+        // Replace bullet markers
+        text = text.replaceAll("(?m)^\\s*[-•]\\s+", "  • ");
 
-        // Step 1: Replace bullet points with bullet character
-        text = BULLET_PATTERN.matcher(text).replaceAll("  • ");
-
-        // Step 2: Parse into segments
         int pos = 0;
         while (pos < text.length())
         {
-            // Check for wiki link [[term]]
+            // Wiki link [[term]]
             if (text.startsWith("[[", pos))
             {
                 int end = text.indexOf("]]", pos + 2);
@@ -445,20 +492,19 @@ public class GnomeGptPanel extends PluginPanel
                 }
             }
 
-            // Check for bold **text**
+            // Bold **text**
             if (text.startsWith("**", pos))
             {
                 int end = text.indexOf("**", pos + 2);
                 if (end >= 0)
                 {
-                    String bold = text.substring(pos + 2, end);
-                    segments.add(new TextSegment(bold, false, null, true, false));
+                    segments.add(new TextSegment(text.substring(pos + 2, end), false, null, true, false));
                     pos = end + 2;
                     continue;
                 }
             }
 
-            // Check for URL
+            // URL
             Matcher urlMatcher = URL_PATTERN.matcher(text);
             if (urlMatcher.find(pos) && urlMatcher.start() == pos)
             {
@@ -468,7 +514,7 @@ public class GnomeGptPanel extends PluginPanel
                 continue;
             }
 
-            // Find next special marker
+            // Find next special
             int nextWiki = text.indexOf("[[", pos);
             int nextBold = text.indexOf("**", pos);
             int nextUrl = Integer.MAX_VALUE;
@@ -477,32 +523,22 @@ public class GnomeGptPanel extends PluginPanel
 
             int nextSpecial = Math.min(
                 nextWiki >= 0 ? nextWiki : Integer.MAX_VALUE,
-                Math.min(
-                    nextBold >= 0 ? nextBold : Integer.MAX_VALUE,
-                    nextUrl
-                )
+                Math.min(nextBold >= 0 ? nextBold : Integer.MAX_VALUE, nextUrl)
             );
-
             if (nextSpecial == Integer.MAX_VALUE) nextSpecial = text.length();
 
-            // Plain text up to next marker
             if (nextSpecial > pos)
             {
                 String plain = text.substring(pos, nextSpecial);
-                // Check for bullet points in this plain segment
                 if (plain.contains("• "))
                 {
                     String[] parts = plain.split("(• )", -1);
                     for (int i = 0; i < parts.length; i++)
                     {
                         if (!parts[i].isEmpty())
-                        {
                             segments.add(new TextSegment(parts[i], false, null, false, false));
-                        }
                         if (i < parts.length - 1)
-                        {
                             segments.add(new TextSegment("• ", false, null, false, true));
-                        }
                     }
                 }
                 else
@@ -515,21 +551,6 @@ public class GnomeGptPanel extends PluginPanel
 
         return segments;
     }
-
-    private void appendLinkSegment(StyledDocument doc, String text, String url, JTextPane pane)
-    {
-        SimpleAttributeSet attrs = new SimpleAttributeSet();
-        StyleConstants.setForeground(attrs, LINK_COLOR);
-        StyleConstants.setUnderline(attrs, true);
-        StyleConstants.setFontFamily(attrs, "SansSerif");
-        StyleConstants.setFontSize(attrs, 12);
-        attrs.addAttribute("url", url);
-
-        try { doc.insertString(doc.getLength(), text, attrs); }
-        catch (BadLocationException e) {}
-    }
-
-    private boolean linkHandlerAdded = false;
 
     private void addLinkHandlers(JTextPane pane, StyledDocument doc)
     {

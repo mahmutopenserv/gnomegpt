@@ -129,9 +129,25 @@ public class QueryExtractor
         {
             queries.add(primary + " quest");
         }
-        if (lower.contains("train") || lower.contains("level") || lower.contains("xp"))
+        if (lower.contains("train") || lower.contains("level") || lower.contains("xp") ||
+            lower.contains("fastest") || lower.contains("cheapest") || lower.contains("quickest") ||
+            lower.contains("efficient") || lower.contains("99"))
         {
             queries.add(primary + " training");
+            // Also try the specific skill training page
+            for (String skill : new String[]{
+                "attack", "strength", "defence", "ranged", "prayer", "magic",
+                "hitpoints", "mining", "smithing", "fishing", "cooking",
+                "firemaking", "woodcutting", "agility", "herblore", "thieving",
+                "crafting", "fletching", "slayer", "hunter", "construction",
+                "farming", "runecraft"})
+            {
+                if (lower.contains(skill))
+                {
+                    queries.add(skill.substring(0, 1).toUpperCase() + skill.substring(1) + " training");
+                    break;
+                }
+            }
         }
         if (lower.contains("kill") || lower.contains("fight") || lower.contains("strategy"))
         {

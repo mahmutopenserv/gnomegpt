@@ -142,7 +142,7 @@ public interface GnomeGptConfig extends Config
     )
     default Personality personality()
     {
-        return Personality.GNOME_CHILD;
+        return Personality.CUSTOM;
     }
 
     @ConfigSection(
