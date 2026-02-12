@@ -110,6 +110,7 @@ public interface GnomeGptConfig extends Config
         GNOME_CHILD("Gnome Child (default)"),
         WISE_OLD_MAN("Wise Old Man"),
         HANS("Hans"),
+        NONE("None (default)"),
         CUSTOM("Custom (use system prompt below)");
 
         private final String name;
@@ -142,7 +143,7 @@ public interface GnomeGptConfig extends Config
     )
     default Personality personality()
     {
-        return Personality.CUSTOM;
+        return Personality.NONE;
     }
 
     @ConfigSection(

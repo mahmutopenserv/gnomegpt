@@ -139,25 +139,43 @@ public class IronmanGuide
                     {
                         StringBuilder sb = new StringBuilder();
                         sb.append("📍 **").append(ch.title).append("**\n");
-                        sb.append("Section: ").append(sec.title).append("\n\n");
+                        sb.append("**").append(sec.title).append("**\n\n");
 
-                        String content = step.content;
-                        if (content.length() > 500)
+                        // Format the step content — clean up whitespace
+                        String content = step.content
+                            .replaceAll("\\s+", " ")
+                            .replaceAll("\\. ", ".\n• ")
+                            .trim();
+
+                        // First sentence stays without bullet
+                        if (content.startsWith("• "))
                         {
-                            content = content.substring(0, 500) + "...";
+                            content = content.substring(2);
                         }
+
                         sb.append(content);
 
                         if (!step.itemsNeeded.isEmpty() && !step.itemsNeeded.equals("none"))
                         {
-                            sb.append("\n\n🎒 Items: ").append(step.itemsNeeded);
-                        }
-                        if (!step.time.isEmpty())
-                        {
-                            sb.append("\n⏱️ Est. time: ").append(step.time);
+                            sb.append("\n\n🎒 **Items needed:**\n");
+                            // Split items by comma and format as bullets
+                            String[] items = step.itemsNeeded.split(",");
+                            for (String item : items)
+                            {
+                                String trimmed = item.trim();
+                                if (!trimmed.isEmpty())
+                                {
+                                    sb.append("• ").append(trimmed).append("\n");
+                                }
+                            }
                         }
 
-                        sb.append("\n\nType /iron next to mark complete, /iron status for progress.");
+                        if (!step.time.isEmpty())
+                        {
+                            sb.append("\n⏱️ **Est. time:** ").append(step.time);
+                        }
+
+                        sb.append("\n\n/iron next → complete | /iron status → progress");
                         return sb.toString();
                     }
                 }

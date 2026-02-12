@@ -503,6 +503,9 @@ public class GnomeGptPlugin extends Plugin
                 case GNOME_CHILD:
                     systemPrompt += "\n\n" + PERSONALITY_GNOME_CHILD;
                     break;
+                case NONE:
+                    // No personality — straightforward helpful assistant
+                    break;
                 case CUSTOM:
                     // No personality added, user has their own prompt
                     break;
