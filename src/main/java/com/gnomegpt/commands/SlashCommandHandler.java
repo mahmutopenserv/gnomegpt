@@ -1,6 +1,7 @@
 package com.gnomegpt.commands;
 
 import com.gnomegpt.calc.SkillCalculator;
+import com.gnomegpt.ironman.IronmanGuide;
 import com.gnomegpt.wiki.OsrsWikiClient;
 import com.gnomegpt.wiki.GePriceClient;
 import org.slf4j.Logger;
@@ -15,12 +16,15 @@ public class SlashCommandHandler
     private final OsrsWikiClient wikiClient;
     private final GePriceClient geClient;
     private final SkillCalculator skillCalc;
+    private final IronmanGuide ironmanGuide;
 
-    public SlashCommandHandler(OsrsWikiClient wikiClient, GePriceClient geClient, SkillCalculator skillCalc)
+    public SlashCommandHandler(OsrsWikiClient wikiClient, GePriceClient geClient,
+                               SkillCalculator skillCalc, IronmanGuide ironmanGuide)
     {
         this.wikiClient = wikiClient;
         this.geClient = geClient;
         this.skillCalc = skillCalc;
+        this.ironmanGuide = ironmanGuide;
     }
 
     public String handle(String message)
@@ -52,6 +56,8 @@ public class SlashCommandHandler
                 return handleCalc(args);
             case "/gear":
                 return handleGear(args);
+            case "/iron":
+                return handleIron(args);
             case "/clear":
                 return "__CLEAR__";
             default:
@@ -68,6 +74,7 @@ public class SlashCommandHandler
             "• /monster <name> — Monster info\n" +
             "• /gear <item> — Item stats + GE price\n" +
             "• /calc <skill> <current> <target> — Training cost calc\n" +
+            "• /iron — Ironman guide tracker (BRUHsailer)\n" +
             "• /clear — Clear chat history\n" +
             "• /help — This message\n\n" +
             "Supported /calc skills: " + String.join(", ", SkillCalculator.supportedSkills()) +
@@ -193,6 +200,45 @@ public class SlashCommandHandler
         {
             log.warn("Gear lookup failed for: {}", itemName, e);
             return "Couldn't look up '" + itemName + "'.";
+        }
+    }
+
+    private String handleIron(String args)
+    {
+        if (!ironmanGuide.isLoaded())
+        {
+            return "Ironman guide data not loaded. Something went wrong at startup.";
+        }
+
+        if (args.isEmpty())
+        {
+            return ironmanGuide.getCurrentStep();
+        }
+
+        switch (args.toLowerCase())
+        {
+            case "next":
+            case "done":
+            case "complete":
+                return ironmanGuide.markCurrentComplete();
+            case "status":
+            case "progress":
+                return ironmanGuide.getStatus();
+            case "back":
+            case "undo":
+                return ironmanGuide.undoLastStep();
+            case "reset":
+                return ironmanGuide.reset();
+            case "help":
+                return "🗡️ **Ironman Guide (BRUHsailer)**\n\n" +
+                    "• /iron — Show current step\n" +
+                    "• /iron next — Mark step complete, show next\n" +
+                    "• /iron back — Undo last step\n" +
+                    "• /iron status — Show progress %\n" +
+                    "• /iron reset — Reset all progress\n\n" +
+                    "Based on the BRUHsailer guide by So Iron BRUH & ParasailerOSRS.";
+            default:
+                return "Unknown /iron command. Try: /iron help";
         }
     }
 

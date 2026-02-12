@@ -105,10 +105,50 @@ public interface GnomeGptConfig extends Config
         return "";
     }
 
+    enum Personality
+    {
+        GNOME_CHILD("Gnome Child (default)"),
+        WISE_OLD_MAN("Wise Old Man"),
+        HANS("Hans"),
+        CUSTOM("Custom (use system prompt below)");
+
+        private final String name;
+
+        Personality(String name)
+        {
+            this.name = name;
+        }
+
+        @Override
+        public String toString()
+        {
+            return name;
+        }
+    }
+
+    @ConfigSection(
+        name = "Personality",
+        description = "Choose GnomeGPT's personality",
+        position = 2
+    )
+    String personalitySection = "personalitySection";
+
+    @ConfigItem(
+        keyName = "personality",
+        name = "Character",
+        description = "Choose a personality for GnomeGPT's responses",
+        section = personalitySection,
+        position = 0
+    )
+    default Personality personality()
+    {
+        return Personality.GNOME_CHILD;
+    }
+
     @ConfigSection(
         name = "Behavior",
         description = "Configure GnomeGPT behavior",
-        position = 2
+        position = 3
     )
     String behaviorSection = "behaviorSection";
 

@@ -5,6 +5,8 @@ import com.gnomegpt.calc.SkillCalculator;
 import com.gnomegpt.chat.ChatHistory;
 import com.gnomegpt.chat.ChatMessage;
 import com.gnomegpt.commands.SlashCommandHandler;
+import com.gnomegpt.data.MoneyMakingGuide;
+import com.gnomegpt.ironman.IronmanGuide;
 import com.gnomegpt.llm.*;
 import com.gnomegpt.search.QueryExtractor;
 import com.gnomegpt.wiki.GePriceClient;
@@ -27,7 +29,9 @@ import org.slf4j.LoggerFactory;
 import javax.inject.Inject;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -39,6 +43,28 @@ import java.util.concurrent.Executors;
 public class GnomeGptPlugin extends Plugin
 {
     private static final Logger log = LoggerFactory.getLogger(GnomeGptPlugin.class);
+
+    private static final String PERSONALITY_GNOME_CHILD =
+        "## PERSONALITY: Gnome Child\n" +
+        "You speak like the Gnome Child — wise beyond your years, slightly mysterious, " +
+        "with an unsettling calm. You give great advice but in a way that makes people think " +
+        "you know something they don't. Occasionally cryptic, always helpful. " +
+        "Short sentences. Sometimes unnervingly direct.\n";
+
+    private static final String PERSONALITY_WISE_OLD_MAN =
+        "## PERSONALITY: Wise Old Man\n" +
+        "You speak like the Wise Old Man (Dionysius) — scholarly, dramatic, a bit pompous, " +
+        "but genuinely knowledgeable. You've 'been everywhere and done everything' in Gielinor. " +
+        "You occasionally reference your bank robbery days or your adventures. " +
+        "You explain things thoroughly because you enjoy hearing yourself talk, " +
+        "but you're actually very helpful. Use dramatic flair.\n";
+
+    private static final String PERSONALITY_HANS =
+        "## PERSONALITY: Hans\n" +
+        "You speak like Hans from Lumbridge — friendly, simple, and welcoming. " +
+        "You've been walking around the castle for years and you've seen every kind of player. " +
+        "You're patient with noobs, excited about everything, and love counting things " +
+        "(time played, steps walked, etc). Wholesome energy. You call everyone 'adventurer'.\n";
 
     private static final String DEFAULT_SYSTEM_PROMPT =
         "You are GnomeGPT, an Old School RuneScape companion in the RuneLite sidebar.\n\n" +
@@ -115,6 +141,8 @@ public class GnomeGptPlugin extends Plugin
     private final GePriceClient geClient = new GePriceClient();
     private final HiscoresClient hiscoresClient = new HiscoresClient();
     private final SkillCalculator skillCalc;
+    private final MoneyMakingGuide moneyGuide = new MoneyMakingGuide();
+    private final IronmanGuide ironmanGuide = new IronmanGuide();
     private final OpenAiProvider openAiProvider = new OpenAiProvider();
     private final AnthropicProvider anthropicProvider = new AnthropicProvider();
     private final OllamaProvider ollamaProvider = new OllamaProvider();
@@ -131,7 +159,7 @@ public class GnomeGptPlugin extends Plugin
     @Override
     protected void startUp()
     {
-        commandHandler = new SlashCommandHandler(wikiClient, geClient, skillCalc);
+        commandHandler = new SlashCommandHandler(wikiClient, geClient, skillCalc, ironmanGuide);
         panel = new GnomeGptPanel(this);
 
         final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "/gnome_child.png");
@@ -277,7 +305,36 @@ public class GnomeGptPlugin extends Plugin
                     }
                 }
 
-                // 2. Skill calculator context
+                // 2. Money making context
+                String moneyContext = "";
+                try
+                {
+                    if (lower.contains("money") || lower.contains("gp/h") ||
+                        lower.contains("gp/hr") || lower.contains("profit") ||
+                        lower.contains("earning") || lower.contains("gold per"))
+                    {
+                        Map<String, Integer> stats = new HashMap<>();
+                        try
+                        {
+                            if (getEffectiveRsn() != null)
+                                stats = parsePlayerStats(hiscoresClient.getPlayerStats(getEffectiveRsn()));
+                        } catch (Exception e) { log.debug("Stats fetch failed for money context"); }
+                        moneyContext = moneyGuide.getTopMethods(stats, 15);
+                    }
+                    else if (lower.contains("boss") || lower.contains("slayer"))
+                    {
+                        Map<String, Integer> stats = new HashMap<>();
+                        try
+                        {
+                            if (getEffectiveRsn() != null)
+                                stats = parsePlayerStats(hiscoresClient.getPlayerStats(getEffectiveRsn()));
+                        } catch (Exception e) { log.debug("Stats fetch failed for money context"); }
+                        moneyContext = moneyGuide.getMethodsByCategory(
+                            lower.contains("boss") ? "boss" : "slayer", stats, 10);
+                    }
+                } catch (Exception e) { log.warn("Money context error", e); }
+
+                // 3. Skill calculator context
                 String calcContext = "";
                 if (lower.contains("cost") || lower.contains("how much") ||
                     lower.contains("99") || lower.contains("train") ||
@@ -286,7 +343,7 @@ public class GnomeGptPlugin extends Plugin
                     calcContext = getCalcContext(lower, getEffectiveRsn());
                 }
 
-                // 3. Player stats
+                // 4. Player stats
                 String playerContext = "";
                 String rsn = getEffectiveRsn();
                 if (rsn != null)
@@ -301,10 +358,10 @@ public class GnomeGptPlugin extends Plugin
                     }
                 }
 
-                // 4. Build conversation
-                List<ChatMessage> conversation = buildConversation(wikiContext, playerContext, calcContext);
+                // 5. Build conversation
+                List<ChatMessage> conversation = buildConversation(wikiContext, playerContext, calcContext, moneyContext);
 
-                // 5. Stream the response
+                // 6. Stream the response
                 LlmProvider provider = getProvider();
                 final StringBuilder fullResponse = new StringBuilder();
 
@@ -345,7 +402,34 @@ public class GnomeGptPlugin extends Plugin
         });
     }
 
-    private List<ChatMessage> buildConversation(String wikiContext, String playerContext, String calcContext)
+    private Map<String, Integer> parsePlayerStats(String statsString)
+    {
+        Map<String, Integer> stats = new HashMap<>();
+        if (statsString == null || statsString.isEmpty()) return stats;
+
+        // Format: "Skills: Attack: 70, Defence: 65, ..."
+        String[] parts = statsString.split(",");
+        for (String part : parts)
+        {
+            String trimmed = part.trim();
+            int colonIdx = trimmed.lastIndexOf(": ");
+            if (colonIdx > 0)
+            {
+                String skill = trimmed.substring(0, colonIdx).trim();
+                // Remove "Skills: " prefix if present
+                if (skill.startsWith("Skills: ")) skill = skill.substring(8);
+                try
+                {
+                    int level = Integer.parseInt(trimmed.substring(colonIdx + 2).trim());
+                    stats.put(skill.toLowerCase(), level);
+                }
+                catch (NumberFormatException e) {}
+            }
+        }
+        return stats;
+    }
+
+    private List<ChatMessage> buildConversation(String wikiContext, String playerContext, String calcContext, String moneyContext)
     {
         List<ChatMessage> conversation = new ArrayList<>();
 
@@ -353,6 +437,23 @@ public class GnomeGptPlugin extends Plugin
         if (systemPrompt == null || systemPrompt.trim().isEmpty())
         {
             systemPrompt = DEFAULT_SYSTEM_PROMPT;
+
+            // Add personality
+            switch (config.personality())
+            {
+                case WISE_OLD_MAN:
+                    systemPrompt += "\n\n" + PERSONALITY_WISE_OLD_MAN;
+                    break;
+                case HANS:
+                    systemPrompt += "\n\n" + PERSONALITY_HANS;
+                    break;
+                case GNOME_CHILD:
+                    systemPrompt += "\n\n" + PERSONALITY_GNOME_CHILD;
+                    break;
+                case CUSTOM:
+                    // No personality added, user has their own prompt
+                    break;
+            }
         }
 
         if (!playerContext.isEmpty())
@@ -366,6 +467,13 @@ public class GnomeGptPlugin extends Plugin
         {
             systemPrompt += "\n\n--- Skill Calculator Data (live GE prices) ---\n" + calcContext +
                 "\nUse this data to give accurate cost estimates. These prices are live from the GE.";
+        }
+
+        if (moneyContext != null && !moneyContext.isEmpty())
+        {
+            systemPrompt += "\n\n--- Money Making Guide Data ---\n" + moneyContext +
+                "\nThese are real methods from the OSRS Wiki money making guide. " +
+                "Use these exact GP/hr rates. ✅ means the player can do it, 🔒 means they need higher levels.";
         }
 
         if (!wikiContext.isEmpty())
