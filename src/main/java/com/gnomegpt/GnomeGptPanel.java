@@ -236,11 +236,7 @@ public class GnomeGptPanel extends PluginPanel
     {
         SwingUtilities.invokeLater(() ->
         {
-            streamingBubble = new JPanel(new BorderLayout());
-            streamingBubble.setBackground(RS_BG_DARK);
-            streamingBubble.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 8, Integer.MAX_VALUE));
-            streamingBubble.setAlignmentX(Component.LEFT_ALIGNMENT);
-            streamingBubble.setBorder(new EmptyBorder(1, 2, 1, 2));
+            streamingBubble = createBubble(false);
 
             // Name label
             JLabel nameLabel = new JLabel("GnomeGPT: ");
@@ -338,21 +334,26 @@ public class GnomeGptPanel extends PluginPanel
 
     // === Private helpers ===
 
+    // Colors for user vs gnome bubbles
+    private static final Color USER_BUBBLE_BG = new Color(0x38, 0x30, 0x22);
+    private static final Color GNOME_BUBBLE_BG = new Color(0x2C, 0x28, 0x1E);
+    private static final Color USER_BUBBLE_BORDER = new Color(0x50, 0x48, 0x38);
+    private static final Color GNOME_BUBBLE_BORDER = new Color(0x48, 0x40, 0x30);
+    // Highlight strip on left edge
+    private static final Color USER_ACCENT = new Color(0x00, 0xCC, 0xCC);
+    private static final Color GNOME_ACCENT = new Color(0xCC, 0x88, 0x00);
+
     /**
-     * Add a simple chat line: "Name: message"
+     * Add a simple chat line in a stone-tablet bubble.
      */
     private void addChatLine(String sender, Color nameColor, String text, Color textColor)
     {
-        JPanel line = new JPanel(new BorderLayout());
-        line.setBackground(RS_BG_DARK);
-        line.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 8, Integer.MAX_VALUE));
-        line.setAlignmentX(Component.LEFT_ALIGNMENT);
-        line.setBorder(new EmptyBorder(1, 2, 1, 2));
+        boolean isUser = sender.equals("You");
+        JPanel bubble = createBubble(isUser);
 
         JTextPane pane = createTextPane();
         StyledDocument doc = pane.getStyledDocument();
 
-        // Sender
         SimpleAttributeSet nameAttrs = new SimpleAttributeSet();
         StyleConstants.setForeground(nameAttrs, nameColor);
         StyleConstants.setBold(nameAttrs, true);
@@ -372,10 +373,10 @@ public class GnomeGptPanel extends PluginPanel
         catch (BadLocationException e) {}
 
         addLinkHandlers(pane, doc);
-        line.add(pane, BorderLayout.CENTER);
+        bubble.add(pane, BorderLayout.CENTER);
 
-        chatContainer.add(line);
-        chatContainer.add(Box.createVerticalStrut(2));
+        chatContainer.add(bubble);
+        chatContainer.add(Box.createVerticalStrut(4));
         chatContainer.revalidate();
     }
 
@@ -384,16 +385,12 @@ public class GnomeGptPanel extends PluginPanel
      */
     private void addFormattedChatLine(String sender, Color nameColor, String text, Color textColor)
     {
-        JPanel line = new JPanel(new BorderLayout());
-        line.setBackground(RS_BG_DARK);
-        line.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 8, Integer.MAX_VALUE));
-        line.setAlignmentX(Component.LEFT_ALIGNMENT);
-        line.setBorder(new EmptyBorder(1, 2, 1, 2));
+        boolean isUser = sender.equals("You");
+        JPanel bubble = createBubble(isUser);
 
         JTextPane pane = createTextPane();
         StyledDocument doc = pane.getStyledDocument();
 
-        // Sender
         SimpleAttributeSet nameAttrs = new SimpleAttributeSet();
         StyleConstants.setForeground(nameAttrs, nameColor);
         StyleConstants.setBold(nameAttrs, true);
@@ -403,14 +400,37 @@ public class GnomeGptPanel extends PluginPanel
         try { doc.insertString(doc.getLength(), sender + ": ", nameAttrs); }
         catch (BadLocationException e) {}
 
-        // Formatted content
         appendFormattedText(pane, text, textColor);
         addLinkHandlers(pane, doc);
 
-        line.add(pane, BorderLayout.CENTER);
-        chatContainer.add(line);
-        chatContainer.add(Box.createVerticalStrut(2));
+        bubble.add(pane, BorderLayout.CENTER);
+        chatContainer.add(bubble);
+        chatContainer.add(Box.createVerticalStrut(4));
         chatContainer.revalidate();
+    }
+
+    /**
+     * Create an RS-themed chat bubble with a colored left accent strip.
+     */
+    private JPanel createBubble(boolean isUser)
+    {
+        Color bg = isUser ? USER_BUBBLE_BG : GNOME_BUBBLE_BG;
+        Color border = isUser ? USER_BUBBLE_BORDER : GNOME_BUBBLE_BORDER;
+        Color accent = isUser ? USER_ACCENT : GNOME_ACCENT;
+
+        JPanel bubble = new JPanel(new BorderLayout());
+        bubble.setBackground(bg);
+        bubble.setBorder(new CompoundBorder(
+            new LineBorder(border, 1),
+            new CompoundBorder(
+                new MatteBorder(0, 3, 0, 0, accent),
+                new EmptyBorder(5, 6, 5, 6)
+            )
+        ));
+        bubble.setMaximumSize(new Dimension(PluginPanel.PANEL_WIDTH - 8, Integer.MAX_VALUE));
+        bubble.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        return bubble;
     }
 
     private JTextPane createTextPane()

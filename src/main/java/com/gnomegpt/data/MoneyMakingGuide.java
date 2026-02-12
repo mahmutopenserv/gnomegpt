@@ -146,8 +146,11 @@ public class MoneyMakingGuide
             return getTopMethods(playerStats, limit);
         }
 
+        // Sort filtered by GP/hr descending
+        filtered.sort((a, b) -> Long.compare(b.gpHr, a.gpHr));
+
         StringBuilder sb = new StringBuilder();
-        sb.append("Money Making Methods matching '").append(query).append("':\n\n");
+        sb.append("Money Making Methods matching '").append(query).append("' (sorted by GP/hr):\n\n");
 
         int count = 0;
         for (MoneyMethod m : filtered)
