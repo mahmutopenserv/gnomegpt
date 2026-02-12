@@ -38,5 +38,5 @@ tasks.withType(JavaCompile) {
 task run(type: JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'com.gnomegpt.GnomeGptPluginTest'
-    jvmArgs = ['-ea']
+    jvmArgs = ['-ea', '--add-exports', 'java.desktop/com.apple.eawt=ALL-UNNAMED']
 }
