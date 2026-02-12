@@ -102,6 +102,54 @@ public class SkillCalculator
             new TrainingMethod("Magic logs", 303.8, "Magic logs", 1),
             new TrainingMethod("Redwood logs", 350, "Redwood logs", 1)
         ));
+
+        // Magic
+        METHODS.put("magic", Arrays.asList(
+            new TrainingMethod("High Level Alchemy (nature runes)", 65, "Nature rune", 1),
+            new TrainingMethod("Plank Make (astral + nature)", 90, "Astral rune", 1),
+            new TrainingMethod("Tan Leather (astral + fire)", 81, "Astral rune", 1),
+            new TrainingMethod("Ice Burst (dust + chaos + death)", 46, "Death rune", 1),
+            new TrainingMethod("String Jewellery (astral + earth)", 83, "Astral rune", 1)
+        ));
+
+        // Ranged
+        METHODS.put("ranged", Arrays.asList(
+            new TrainingMethod("Iron knives", 10, "Iron knife", 1),
+            new TrainingMethod("Mithril darts", 11.2, "Mithril dart", 1),
+            new TrainingMethod("Broad bolts (slayer)", 19.5, "Broad bolts", 1),
+            new TrainingMethod("Dragon darts", 25.2, "Dragon dart", 1),
+            new TrainingMethod("Red chinchompas (MM2 tunnels)", 250, "Red chinchompa", 1)
+        ));
+
+        // Mining
+        METHODS.put("mining", Arrays.asList(
+            new TrainingMethod("Iron ore (Powermining)", 35, null, 0),
+            new TrainingMethod("Gem rocks (Shilo Village)", 65, null, 0),
+            new TrainingMethod("Motherlode Mine (upper)", 45, null, 0),
+            new TrainingMethod("Volcanic Mine", 90, null, 0),
+            new TrainingMethod("Amethyst (level 92+)", 20, null, 0)
+        ));
+
+        // Agility
+        METHODS.put("agility", Arrays.asList(
+            new TrainingMethod("Rooftop courses (varies)", 50, null, 0),
+            new TrainingMethod("Hallowed Sepulchre (floor 5)", 85, null, 0),
+            new TrainingMethod("Werewolf course", 540, null, 0)
+        ));
+
+        // Runecraft
+        METHODS.put("runecraft", Arrays.asList(
+            new TrainingMethod("Guardians of the Rift", 55, null, 0),
+            new TrainingMethod("Blood runes (77+)", 23.8, "Pure essence", 1),
+            new TrainingMethod("Lava runes (earth talisman)", 26, "Earth talisman", 1)
+        ));
+
+        // Thieving
+        METHODS.put("thieving", Arrays.asList(
+            new TrainingMethod("Blackjacking (Menaphite Thugs)", 130, null, 0),
+            new TrainingMethod("Artefacts (Port Piscarilius)", 100, null, 0),
+            new TrainingMethod("Elves (Prif, 85+)", 130, null, 0)
+        ));
     }
 
     private final GePriceClient geClient;

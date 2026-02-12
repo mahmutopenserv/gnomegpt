@@ -1,15 +1,21 @@
 package com.gnomegpt;
 
 import com.google.inject.Provides;
+import com.gnomegpt.calc.SkillCalculator;
 import com.gnomegpt.chat.ChatHistory;
 import com.gnomegpt.chat.ChatMessage;
-import com.gnomegpt.calc.SkillCalculator;
 import com.gnomegpt.commands.SlashCommandHandler;
 import com.gnomegpt.llm.*;
+import com.gnomegpt.search.QueryExtractor;
 import com.gnomegpt.wiki.GePriceClient;
 import com.gnomegpt.wiki.HiscoresClient;
 import com.gnomegpt.wiki.OsrsWikiClient;
+import net.runelite.api.Client;
+import net.runelite.api.Player;
+import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.GameState;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
@@ -48,7 +54,8 @@ public class GnomeGptPlugin extends Plugin
         "Don't add URLs in parentheses — the brackets handle it.\n" +
         "6. Use OSRS slang naturally (gp, xp, kc, bis, spec, etc).\n" +
         "7. Be direct and have opinions, but only when grounded in real game knowledge.\n" +
-        "8. Light humor welcome. Never condescending.\n\n" +
+        "8. Light humor welcome. Never condescending.\n" +
+        "9. When skill calculator data is provided, use those exact numbers for cost estimates.\n\n" +
         "You have access to the OSRS Wiki — it's automatically searched and the results are " +
         "included below as context. You DON'T need to browse anything yourself. When wiki context " +
         "is provided, use it confidently. When it's not, just say you're not sure about the specifics.\n" +
@@ -60,6 +67,12 @@ public class GnomeGptPlugin extends Plugin
 
     @Inject
     private GnomeGptConfig config;
+
+    @Inject
+    private Client client;
+
+    @Inject
+    private ConfigManager configManager;
 
     private GnomeGptPanel panel;
     private NavigationButton navButton;
@@ -74,6 +87,9 @@ public class GnomeGptPlugin extends Plugin
     private final OllamaProvider ollamaProvider = new OllamaProvider();
     private SlashCommandHandler commandHandler;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    // Auto-detected RSN
+    private String detectedRsn = null;
 
     {
         skillCalc = new SkillCalculator(geClient);
@@ -112,6 +128,42 @@ public class GnomeGptPlugin extends Plugin
         return configManager.getConfig(GnomeGptConfig.class);
     }
 
+    /**
+     * Auto-detect RSN when player logs in.
+     */
+    @Subscribe
+    public void onGameStateChanged(GameStateChanged event)
+    {
+        if (event.getGameState() == GameState.LOGGED_IN)
+        {
+            Player local = client.getLocalPlayer();
+            if (local != null && local.getName() != null)
+            {
+                detectedRsn = local.getName();
+                log.info("GnomeGPT detected RSN: {}", detectedRsn);
+
+                // Auto-fill config if empty
+                if (config.rsn() == null || config.rsn().trim().isEmpty())
+                {
+                    configManager.setConfiguration("gnomegpt", "rsn", detectedRsn);
+                }
+            }
+        }
+    }
+
+    /**
+     * Get the effective RSN (config override > auto-detected).
+     */
+    private String getEffectiveRsn()
+    {
+        String configRsn = config.rsn();
+        if (configRsn != null && !configRsn.trim().isEmpty())
+        {
+            return configRsn.trim();
+        }
+        return detectedRsn;
+    }
+
     public void sendMessage(String userMessage)
     {
         if (userMessage == null || userMessage.trim().isEmpty())
@@ -138,7 +190,7 @@ public class GnomeGptPlugin extends Plugin
             return;
         }
 
-        // Regular message → LLM
+        // Regular message → LLM with streaming
         ChatMessage userMsg = new ChatMessage(ChatMessage.Role.USER, trimmed);
         chatHistory.addMessage(userMsg);
         panel.addMessage(userMsg);
@@ -152,6 +204,7 @@ public class GnomeGptPlugin extends Plugin
         }
 
         panel.setLoading(true);
+        panel.startStreamingBubble();
 
         executor.submit(() ->
         {
@@ -159,27 +212,30 @@ public class GnomeGptPlugin extends Plugin
             {
                 String lower = trimmed.toLowerCase();
 
-                // 1. Wiki context
+                // 1. Smart wiki search
                 String wikiContext = "";
                 if (config.wikiLookup())
                 {
                     try
                     {
-                        if (lower.contains("money") || lower.contains("gp/h") ||
-                            lower.contains("gp/hr") || lower.contains("gold") ||
-                            lower.contains("earning") || lower.contains("profit") ||
-                            lower.contains("boss") || lower.contains("bossing"))
+                        List<String> queries = QueryExtractor.extractMultiple(trimmed);
+                        StringBuilder wikiBuilder = new StringBuilder();
+
+                        for (String query : queries)
                         {
-                            wikiContext = wikiClient.searchAndFetch("Money making guide", 2);
-                            String additional = wikiClient.searchAndFetch(trimmed, config.maxWikiResults());
-                            if (!additional.isEmpty())
+                            String result = wikiClient.searchAndFetch(query,
+                                queries.size() > 1 ? 2 : config.maxWikiResults());
+                            if (!result.isEmpty())
                             {
-                                wikiContext += additional;
+                                wikiBuilder.append(result);
                             }
                         }
-                        else
+                        wikiContext = wikiBuilder.toString();
+
+                        // Truncate if too long to avoid token limits
+                        if (wikiContext.length() > 12000)
                         {
-                            wikiContext = wikiClient.searchAndFetch(trimmed, config.maxWikiResults());
+                            wikiContext = wikiContext.substring(0, 12000) + "\n...[truncated]";
                         }
                     }
                     catch (Exception e)
@@ -188,19 +244,19 @@ public class GnomeGptPlugin extends Plugin
                     }
                 }
 
-                // 2. Skill calculator context (for training cost questions)
+                // 2. Skill calculator context
                 String calcContext = "";
                 if (lower.contains("cost") || lower.contains("how much") ||
                     lower.contains("99") || lower.contains("train") ||
                     lower.contains("level") || lower.contains("xp"))
                 {
-                    calcContext = getCalcContext(lower, config.rsn());
+                    calcContext = getCalcContext(lower, getEffectiveRsn());
                 }
 
                 // 3. Player stats
                 String playerContext = "";
-                String rsn = config.rsn();
-                if (rsn != null && !rsn.trim().isEmpty())
+                String rsn = getEffectiveRsn();
+                if (rsn != null)
                 {
                     try
                     {
@@ -215,26 +271,42 @@ public class GnomeGptPlugin extends Plugin
                 // 4. Build conversation
                 List<ChatMessage> conversation = buildConversation(wikiContext, playerContext, calcContext);
 
-                // 5. Call LLM
+                // 5. Stream the response
                 LlmProvider provider = getProvider();
-                String response = provider.chat(conversation, config.model());
+                final StringBuilder fullResponse = new StringBuilder();
 
-                // 6. Display
-                ChatMessage assistantMsg = new ChatMessage(ChatMessage.Role.ASSISTANT, response);
-                chatHistory.addMessage(assistantMsg);
-                panel.addMessage(assistantMsg);
+                provider.chatStream(conversation, config.model(), new StreamCallback()
+                {
+                    @Override
+                    public void onToken(String token)
+                    {
+                        fullResponse.append(token);
+                        panel.appendStreamToken(token);
+                    }
+
+                    @Override
+                    public void onComplete(String response)
+                    {
+                        // Re-render with full formatting
+                        panel.finalizeStreamBubble(response);
+
+                        ChatMessage assistantMsg = new ChatMessage(ChatMessage.Role.ASSISTANT, response);
+                        chatHistory.addMessage(assistantMsg);
+                        panel.setLoading(false);
+                    }
+
+                    @Override
+                    public void onError(String error)
+                    {
+                        panel.finalizeStreamBubble("Error: " + error);
+                        panel.setLoading(false);
+                    }
+                });
             }
             catch (Exception e)
             {
                 log.error("Error getting AI response", e);
-                ChatMessage errorMsg = new ChatMessage(
-                    ChatMessage.Role.ASSISTANT,
-                    "Something went wrong: " + e.getMessage()
-                );
-                panel.addMessage(errorMsg);
-            }
-            finally
-            {
+                panel.finalizeStreamBubble("Something went wrong: " + e.getMessage());
                 panel.setLoading(false);
             }
         });
@@ -286,10 +358,6 @@ public class GnomeGptPlugin extends Plugin
         return conversation;
     }
 
-    /**
-     * Try to detect which skill the user is asking about and generate calc context.
-     * Uses player's hiscores stats if RSN is set.
-     */
     private String getCalcContext(String query, String rsn)
     {
         StringBuilder context = new StringBuilder();
@@ -298,14 +366,12 @@ public class GnomeGptPlugin extends Plugin
         {
             if (query.contains(skill))
             {
-                // Try to get current level from hiscores
                 int currentLevel = 1;
-                if (rsn != null && !rsn.trim().isEmpty())
+                if (rsn != null && !rsn.isEmpty())
                 {
                     try
                     {
                         String stats = hiscoresClient.getPlayerStats(rsn);
-                        // Parse the level for this skill from the stats string
                         String skillCap = skill.substring(0, 1).toUpperCase() + skill.substring(1);
                         int idx = stats.indexOf(skillCap + ": ");
                         if (idx >= 0)
@@ -321,9 +387,7 @@ public class GnomeGptPlugin extends Plugin
                     }
                 }
 
-                // Determine target level (default 99 if not specified)
                 int targetLevel = 99;
-                // Try to extract a target from the query like "level 70" or "to 80"
                 java.util.regex.Matcher m = java.util.regex.Pattern.compile(
                     "(?:to|level|lvl)\\s*(\\d{1,2})"
                 ).matcher(query);

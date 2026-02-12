@@ -8,7 +8,9 @@ import okhttp3.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -26,7 +28,7 @@ public class AnthropicProvider implements LlmProvider
     {
         this.httpClient = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
             .build();
     }
 
@@ -41,31 +43,26 @@ public class AnthropicProvider implements LlmProvider
         return apiKey != null && !apiKey.trim().isEmpty();
     }
 
-    @Override
-    public String chat(List<ChatMessage> messages, String model) throws IOException
+    private String extractSystem(List<ChatMessage> messages)
     {
-        if (!isAvailable())
-        {
-            return "Please set your Anthropic API key in the plugin settings. Get one at: https://console.anthropic.com/settings/keys";
-        }
-
-        String systemPrompt = "";
-        List<ChatMessage> nonSystemMessages = messages.stream()
-            .filter(m -> m.getRole() != ChatMessage.Role.SYSTEM)
-            .collect(Collectors.toList());
-
         for (ChatMessage m : messages)
         {
-            if (m.getRole() == ChatMessage.Role.SYSTEM)
-            {
-                systemPrompt = m.getContent();
-                break;
-            }
+            if (m.getRole() == ChatMessage.Role.SYSTEM) return m.getContent();
         }
+        return "";
+    }
+
+    private JsonObject buildBody(List<ChatMessage> messages, String model, boolean stream)
+    {
+        String systemPrompt = extractSystem(messages);
+        List<ChatMessage> nonSystem = messages.stream()
+            .filter(m -> m.getRole() != ChatMessage.Role.SYSTEM)
+            .collect(Collectors.toList());
 
         JsonObject body = new JsonObject();
         body.addProperty("model", model != null && !model.isEmpty() ? model : "claude-haiku-4-20250514");
         body.addProperty("max_tokens", 1024);
+        body.addProperty("stream", stream);
 
         if (!systemPrompt.isEmpty())
         {
@@ -73,7 +70,7 @@ public class AnthropicProvider implements LlmProvider
         }
 
         JsonArray messagesArr = new JsonArray();
-        for (ChatMessage msg : nonSystemMessages)
+        for (ChatMessage msg : nonSystem)
         {
             JsonObject m = new JsonObject();
             m.addProperty("role", msg.getRoleString());
@@ -82,41 +79,133 @@ public class AnthropicProvider implements LlmProvider
         }
         body.add("messages", messagesArr);
 
-        Request request = new Request.Builder()
+        return body;
+    }
+
+    private Request buildRequest(JsonObject body)
+    {
+        return new Request.Builder()
             .url(API_URL)
             .header("x-api-key", apiKey)
             .header("anthropic-version", "2023-06-01")
             .header("Content-Type", "application/json")
             .post(RequestBody.create(body.toString(), JSON))
             .build();
+    }
 
-        try (Response response = httpClient.newCall(request).execute())
+    @Override
+    public String chat(List<ChatMessage> messages, String model) throws IOException
+    {
+        if (!isAvailable()) return "Please set your Anthropic API key.";
+
+        Request request = buildRequest(buildBody(messages, model, false));
+        Response response = httpClient.newCall(request).execute();
+
+        if ((response.code() == 429 || response.code() >= 500))
         {
-            if (response.body() == null)
-            {
-                return "Error: Empty response from Anthropic";
-            }
+            response.close();
+            try { Thread.sleep(1000); } catch (InterruptedException e) {}
+            response = httpClient.newCall(request).execute();
+        }
 
-            String responseBody = response.body().string();
+        if (response.body() == null) return "Error: Empty response";
 
-            if (!response.isSuccessful())
+        String responseBody = response.body().string();
+        if (!response.isSuccessful())
+        {
+            log.error("Anthropic error {}: {}", response.code(), responseBody);
+            if (response.code() == 401) return "Invalid API key.";
+            return "Anthropic API error (" + response.code() + ").";
+        }
+
+        JsonObject json = JsonParser.parseString(responseBody).getAsJsonObject();
+        JsonArray content = json.getAsJsonArray("content");
+        if (content != null && content.size() > 0)
+        {
+            return content.get(0).getAsJsonObject().get("text").getAsString().trim();
+        }
+        return "Error: No response generated";
+    }
+
+    @Override
+    public void chatStream(List<ChatMessage> messages, String model, StreamCallback callback)
+    {
+        if (!isAvailable())
+        {
+            callback.onError("Please set your Anthropic API key.");
+            return;
+        }
+
+        Request request = buildRequest(buildBody(messages, model, true));
+
+        try
+        {
+            Response response = httpClient.newCall(request).execute();
+
+            if (!response.isSuccessful() || response.body() == null)
             {
-                log.error("Anthropic API error {}: {}", response.code(), responseBody);
-                if (response.code() == 401)
+                int code = response.code();
+                response.close();
+                if (code == 429 || code >= 500)
                 {
-                    return "Invalid API key. Check your key at: https://console.anthropic.com/settings/keys";
+                    try { Thread.sleep(1000); } catch (InterruptedException ie) {}
+                    response = httpClient.newCall(request).execute();
+                    if (!response.isSuccessful() || response.body() == null)
+                    {
+                        callback.onError("Anthropic API error (" + response.code() + ")");
+                        response.close();
+                        return;
+                    }
                 }
-                return "Anthropic API error (" + response.code() + "). Check the RuneLite logs for details.";
+                else
+                {
+                    callback.onError(code == 401 ? "Invalid API key." : "Anthropic error (" + code + ")");
+                    return;
+                }
             }
 
-            JsonObject json = JsonParser.parseString(responseBody).getAsJsonObject();
-            JsonArray content = json.getAsJsonArray("content");
-            if (content != null && content.size() > 0)
+            StringBuilder fullResponse = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(response.body().byteStream())))
             {
-                return content.get(0).getAsJsonObject()
-                    .get("text").getAsString().trim();
+                String line;
+                while ((line = reader.readLine()) != null)
+                {
+                    if (!line.startsWith("data: ")) continue;
+                    String data = line.substring(6).trim();
+
+                    try
+                    {
+                        JsonObject event = JsonParser.parseString(data).getAsJsonObject();
+                        String type = event.has("type") ? event.get("type").getAsString() : "";
+
+                        if ("content_block_delta".equals(type))
+                        {
+                            JsonObject delta = event.getAsJsonObject("delta");
+                            if (delta != null && delta.has("text"))
+                            {
+                                String token = delta.get("text").getAsString();
+                                fullResponse.append(token);
+                                callback.onToken(token);
+                            }
+                        }
+                        else if ("message_stop".equals(type))
+                        {
+                            break;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        // skip
+                    }
+                }
             }
-            return "Error: No response generated";
+
+            callback.onComplete(fullResponse.toString());
+        }
+        catch (IOException e)
+        {
+            callback.onError("Connection error: " + e.getMessage());
         }
     }
 }

@@ -50,6 +50,8 @@ public class SlashCommandHandler
                 return handleWiki(args);
             case "/calc":
                 return handleCalc(args);
+            case "/gear":
+                return handleGear(args);
             case "/clear":
                 return "__CLEAR__";
             default:
@@ -59,14 +61,15 @@ public class SlashCommandHandler
 
     private String getHelpText()
     {
-        return "\uD83E\uDDD9 GnomeGPT Commands:\n" +
-            "/price <item> — GE price check\n" +
-            "/wiki <topic> — Quick wiki lookup\n" +
-            "/quest <name> — Quest info\n" +
-            "/monster <name> — Monster info\n" +
-            "/calc <skill> <current> <target> — Training cost calculator\n" +
-            "/clear — Clear chat history\n" +
-            "/help — This message\n\n" +
+        return "\uD83E\uDDD9 **GnomeGPT Commands:**\n\n" +
+            "• /price <item> — GE price check\n" +
+            "• /wiki <topic> — Quick wiki lookup\n" +
+            "• /quest <name> — Quest info\n" +
+            "• /monster <name> — Monster info\n" +
+            "• /gear <item> — Item stats + GE price\n" +
+            "• /calc <skill> <current> <target> — Training cost calc\n" +
+            "• /clear — Clear chat history\n" +
+            "• /help — This message\n\n" +
             "Supported /calc skills: " + String.join(", ", SkillCalculator.supportedSkills()) +
             "\nOr just type normally and I'll help you out!";
     }
@@ -128,6 +131,68 @@ public class SlashCommandHandler
         {
             log.warn("Wiki lookup failed for: {}", query, e);
             return "Wiki search failed for '" + query + "'.";
+        }
+    }
+
+    private String handleGear(String itemName)
+    {
+        if (itemName.isEmpty())
+        {
+            return "Usage: /gear <item name>\nExample: /gear Abyssal whip";
+        }
+
+        try
+        {
+            // Get wiki info
+            List<String> titles = wikiClient.search(itemName, 1);
+            String wikiInfo = "";
+            String url = "";
+            if (!titles.isEmpty())
+            {
+                String title = titles.get(0);
+                wikiInfo = wikiClient.getPageContent(title);
+                url = "https://oldschool.runescape.wiki/w/" + title.replace(" ", "_");
+                if (wikiInfo.length() > 800)
+                {
+                    wikiInfo = wikiInfo.substring(0, 800) + "...";
+                }
+            }
+
+            // Get GE price
+            String priceInfo = "";
+            try
+            {
+                priceInfo = geClient.lookup(itemName);
+            }
+            catch (Exception e)
+            {
+                priceInfo = "Price unavailable";
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("⚔️ **").append(itemName).append("**\n\n");
+
+            if (!priceInfo.isEmpty() && !priceInfo.startsWith("Couldn't"))
+            {
+                result.append(priceInfo).append("\n\n");
+            }
+
+            if (!wikiInfo.isEmpty())
+            {
+                result.append(wikiInfo).append("\n");
+            }
+
+            if (!url.isEmpty())
+            {
+                result.append("\n").append(url);
+            }
+
+            return result.toString();
+        }
+        catch (Exception e)
+        {
+            log.warn("Gear lookup failed for: {}", itemName, e);
+            return "Couldn't look up '" + itemName + "'.";
         }
     }
 
