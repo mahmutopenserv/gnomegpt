@@ -48,8 +48,11 @@ public class GnomeGptPlugin extends Plugin
         "6. Use OSRS slang naturally (gp, xp, kc, bis, spec, etc).\n" +
         "7. Be direct and have opinions, but only when grounded in real game knowledge.\n" +
         "8. Light humor welcome. Never condescending.\n\n" +
-        "You have access to the OSRS Wiki. Base your answers on the wiki context provided. " +
-        "Add practical advice on top, but never contradict or go beyond what the wiki says.";
+        "You have access to the OSRS Wiki — it's automatically searched and the results are " +
+        "included below as context. You DON'T need to browse anything yourself. When wiki context " +
+        "is provided, use it confidently. When it's not, just say you're not sure about the specifics.\n" +
+        "NEVER say 'I can't browse the wiki' or 'I don't have access to the wiki' — you DO, " +
+        "the results are right there in your context.";
 
     @Inject
     private ClientToolbar clientToolbar;
@@ -156,10 +159,11 @@ public class GnomeGptPlugin extends Plugin
                     {
                         // For moneymaking queries, also search the money making guide
                         String query = trimmed;
-                        if (trimmed.toLowerCase().contains("money") ||
-                            trimmed.toLowerCase().contains("gp/h") ||
-                            trimmed.toLowerCase().contains("gold") ||
-                            trimmed.toLowerCase().contains("earning"))
+                        String lower = trimmed.toLowerCase();
+                        if (lower.contains("money") || lower.contains("gp/h") ||
+                            lower.contains("gp/hr") || lower.contains("gold") ||
+                            lower.contains("earning") || lower.contains("profit") ||
+                            lower.contains("boss") || lower.contains("bossing"))
                         {
                             wikiContext = wikiClient.searchAndFetch("Money making guide", 2);
                             String additional = wikiClient.searchAndFetch(trimmed, config.maxWikiResults());
