@@ -3,6 +3,7 @@ package com.gnomegpt;
 import com.google.inject.Provides;
 import com.gnomegpt.chat.ChatHistory;
 import com.gnomegpt.chat.ChatMessage;
+import com.gnomegpt.calc.SkillCalculator;
 import com.gnomegpt.commands.SlashCommandHandler;
 import com.gnomegpt.llm.*;
 import com.gnomegpt.wiki.GePriceClient;
@@ -67,16 +68,21 @@ public class GnomeGptPlugin extends Plugin
     private final OsrsWikiClient wikiClient = new OsrsWikiClient();
     private final GePriceClient geClient = new GePriceClient();
     private final HiscoresClient hiscoresClient = new HiscoresClient();
+    private final SkillCalculator skillCalc;
     private final OpenAiProvider openAiProvider = new OpenAiProvider();
     private final AnthropicProvider anthropicProvider = new AnthropicProvider();
     private final OllamaProvider ollamaProvider = new OllamaProvider();
     private SlashCommandHandler commandHandler;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
+    {
+        skillCalc = new SkillCalculator(geClient);
+    }
+
     @Override
     protected void startUp()
     {
-        commandHandler = new SlashCommandHandler(wikiClient, geClient);
+        commandHandler = new SlashCommandHandler(wikiClient, geClient, skillCalc);
         panel = new GnomeGptPanel(this);
 
         final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "/gnome_child.png");
@@ -151,15 +157,14 @@ public class GnomeGptPlugin extends Plugin
         {
             try
             {
+                String lower = trimmed.toLowerCase();
+
                 // 1. Wiki context
                 String wikiContext = "";
                 if (config.wikiLookup())
                 {
                     try
                     {
-                        // For moneymaking queries, also search the money making guide
-                        String query = trimmed;
-                        String lower = trimmed.toLowerCase();
                         if (lower.contains("money") || lower.contains("gp/h") ||
                             lower.contains("gp/hr") || lower.contains("gold") ||
                             lower.contains("earning") || lower.contains("profit") ||
@@ -183,7 +188,16 @@ public class GnomeGptPlugin extends Plugin
                     }
                 }
 
-                // 2. Player stats
+                // 2. Skill calculator context (for training cost questions)
+                String calcContext = "";
+                if (lower.contains("cost") || lower.contains("how much") ||
+                    lower.contains("99") || lower.contains("train") ||
+                    lower.contains("level") || lower.contains("xp"))
+                {
+                    calcContext = getCalcContext(lower, config.rsn());
+                }
+
+                // 3. Player stats
                 String playerContext = "";
                 String rsn = config.rsn();
                 if (rsn != null && !rsn.trim().isEmpty())
@@ -198,14 +212,14 @@ public class GnomeGptPlugin extends Plugin
                     }
                 }
 
-                // 3. Build conversation
-                List<ChatMessage> conversation = buildConversation(wikiContext, playerContext);
+                // 4. Build conversation
+                List<ChatMessage> conversation = buildConversation(wikiContext, playerContext, calcContext);
 
-                // 4. Call LLM
+                // 5. Call LLM
                 LlmProvider provider = getProvider();
                 String response = provider.chat(conversation, config.model());
 
-                // 5. Display
+                // 6. Display
                 ChatMessage assistantMsg = new ChatMessage(ChatMessage.Role.ASSISTANT, response);
                 chatHistory.addMessage(assistantMsg);
                 panel.addMessage(assistantMsg);
@@ -226,7 +240,7 @@ public class GnomeGptPlugin extends Plugin
         });
     }
 
-    private List<ChatMessage> buildConversation(String wikiContext, String playerContext)
+    private List<ChatMessage> buildConversation(String wikiContext, String playerContext, String calcContext)
     {
         List<ChatMessage> conversation = new ArrayList<>();
 
@@ -241,6 +255,12 @@ public class GnomeGptPlugin extends Plugin
             systemPrompt += "\n\n--- Player Stats ---\n" + playerContext +
                 "\nUse these stats to tailor your advice (e.g. don't suggest methods " +
                 "requiring 90 Slayer if they're level 50).";
+        }
+
+        if (!calcContext.isEmpty())
+        {
+            systemPrompt += "\n\n--- Skill Calculator Data (live GE prices) ---\n" + calcContext +
+                "\nUse this data to give accurate cost estimates. These prices are live from the GE.";
         }
 
         if (!wikiContext.isEmpty())
@@ -264,6 +284,67 @@ public class GnomeGptPlugin extends Plugin
         }
 
         return conversation;
+    }
+
+    /**
+     * Try to detect which skill the user is asking about and generate calc context.
+     * Uses player's hiscores stats if RSN is set.
+     */
+    private String getCalcContext(String query, String rsn)
+    {
+        StringBuilder context = new StringBuilder();
+
+        for (String skill : SkillCalculator.supportedSkills())
+        {
+            if (query.contains(skill))
+            {
+                // Try to get current level from hiscores
+                int currentLevel = 1;
+                if (rsn != null && !rsn.trim().isEmpty())
+                {
+                    try
+                    {
+                        String stats = hiscoresClient.getPlayerStats(rsn);
+                        // Parse the level for this skill from the stats string
+                        String skillCap = skill.substring(0, 1).toUpperCase() + skill.substring(1);
+                        int idx = stats.indexOf(skillCap + ": ");
+                        if (idx >= 0)
+                        {
+                            String after = stats.substring(idx + skillCap.length() + 2);
+                            String levelStr = after.split("[,\\s]")[0];
+                            currentLevel = Integer.parseInt(levelStr);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        log.debug("Could not get {} level from hiscores", skill);
+                    }
+                }
+
+                // Determine target level (default 99 if not specified)
+                int targetLevel = 99;
+                // Try to extract a target from the query like "level 70" or "to 80"
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "(?:to|level|lvl)\\s*(\\d{1,2})"
+                ).matcher(query);
+                if (m.find())
+                {
+                    int parsed = Integer.parseInt(m.group(1));
+                    if (parsed > currentLevel && parsed <= 99)
+                    {
+                        targetLevel = parsed;
+                    }
+                }
+
+                if (currentLevel < targetLevel)
+                {
+                    context.append(skillCalc.calculate(skill, currentLevel, targetLevel));
+                    context.append("\n");
+                }
+            }
+        }
+
+        return context.toString();
     }
 
     private LlmProvider getProvider()

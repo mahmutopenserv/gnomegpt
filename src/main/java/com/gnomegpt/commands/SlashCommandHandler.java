@@ -1,5 +1,6 @@
 package com.gnomegpt.commands;
 
+import com.gnomegpt.calc.SkillCalculator;
 import com.gnomegpt.wiki.OsrsWikiClient;
 import com.gnomegpt.wiki.GePriceClient;
 import org.slf4j.Logger;
@@ -13,11 +14,13 @@ public class SlashCommandHandler
 
     private final OsrsWikiClient wikiClient;
     private final GePriceClient geClient;
+    private final SkillCalculator skillCalc;
 
-    public SlashCommandHandler(OsrsWikiClient wikiClient, GePriceClient geClient)
+    public SlashCommandHandler(OsrsWikiClient wikiClient, GePriceClient geClient, SkillCalculator skillCalc)
     {
         this.wikiClient = wikiClient;
         this.geClient = geClient;
+        this.skillCalc = skillCalc;
     }
 
     public String handle(String message)
@@ -45,6 +48,8 @@ public class SlashCommandHandler
                 return handleWiki(args + " quest");
             case "/monster":
                 return handleWiki(args);
+            case "/calc":
+                return handleCalc(args);
             case "/clear":
                 return "__CLEAR__";
             default:
@@ -54,15 +59,16 @@ public class SlashCommandHandler
 
     private String getHelpText()
     {
-        return "🧙 GnomeGPT Commands:\n" +
+        return "\uD83E\uDDD9 GnomeGPT Commands:\n" +
             "/price <item> — GE price check\n" +
             "/wiki <topic> — Quick wiki lookup\n" +
-            "/item <item> — Wiki lookup (same as /wiki)\n" +
             "/quest <name> — Quest info\n" +
             "/monster <name> — Monster info\n" +
+            "/calc <skill> <current> <target> — Training cost calculator\n" +
             "/clear — Clear chat history\n" +
             "/help — This message\n\n" +
-            "Or just type normally and I'll help you out!";
+            "Supported /calc skills: " + String.join(", ", SkillCalculator.supportedSkills()) +
+            "\nOr just type normally and I'll help you out!";
     }
 
     private String handlePrice(String itemName)
@@ -122,6 +128,50 @@ public class SlashCommandHandler
         {
             log.warn("Wiki lookup failed for: {}", query, e);
             return "Wiki search failed for '" + query + "'.";
+        }
+    }
+
+    private String handleCalc(String args)
+    {
+        if (args.isEmpty())
+        {
+            return "Usage: /calc <skill> <current_level> <target_level>\n" +
+                "Example: /calc construction 50 99\n\n" +
+                "Supported skills: " + String.join(", ", SkillCalculator.supportedSkills());
+        }
+
+        String[] parts = args.split("\\s+");
+        if (parts.length < 3)
+        {
+            return "Usage: /calc <skill> <current_level> <target_level>\nExample: /calc construction 50 99";
+        }
+
+        String skill = parts[0].toLowerCase();
+        if (!SkillCalculator.hasMethodsFor(skill))
+        {
+            return "No calculator data for '" + skill + "' yet.\nSupported: " +
+                String.join(", ", SkillCalculator.supportedSkills());
+        }
+
+        try
+        {
+            int current = Integer.parseInt(parts[1]);
+            int target = Integer.parseInt(parts[2]);
+
+            if (current < 1 || current > 99 || target < 1 || target > 99)
+            {
+                return "Levels must be between 1 and 99.";
+            }
+            if (target <= current)
+            {
+                return "Target level must be higher than current level.";
+            }
+
+            return skillCalc.calculate(skill, current, target);
+        }
+        catch (NumberFormatException e)
+        {
+            return "Invalid levels. Use numbers: /calc construction 50 99";
         }
     }
 }
