@@ -6,6 +6,7 @@ import com.gnomegpt.chat.ChatMessage;
 import com.gnomegpt.commands.SlashCommandHandler;
 import com.gnomegpt.llm.*;
 import com.gnomegpt.wiki.GePriceClient;
+import com.gnomegpt.wiki.HiscoresClient;
 import com.gnomegpt.wiki.OsrsWikiClient;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.plugins.Plugin;
@@ -33,25 +34,22 @@ public class GnomeGptPlugin extends Plugin
     private static final Logger log = LoggerFactory.getLogger(GnomeGptPlugin.class);
 
     private static final String DEFAULT_SYSTEM_PROMPT =
-        "You are GnomeGPT, an Old School RuneScape companion who lives in the RuneLite sidebar. " +
-        "You talk like a knowledgeable friend — direct, a bit witty, never robotic. " +
-        "Think of how a maxed player talks to their noob friend: helpful, maybe a little cheeky, " +
-        "but genuinely wants them to succeed.\n\n" +
-        "Your personality:\n" +
-        "- Be concise. Nobody wants a wall of text while they're trying to grind.\n" +
-        "- Use OSRS slang naturally (gp, xp, kc, bis, spec, tb, ags, etc.) but explain obscure stuff if asked.\n" +
-        "- Have opinions. If someone asks about the best moneymaker, give them YOUR pick with reasoning, " +
-        "don't just list 10 options.\n" +
-        "- Be honest when you're not sure. 'I think it's X but double-check the wiki' beats a confident wrong answer.\n" +
-        "- Light humor is good. Sarcasm about the wilderness, death mechanics, or RNG is always welcome.\n" +
-        "- Never be condescending. Everyone was a noob once.\n" +
-        "- When mentioning items, quests, or NPCs, use [[double brackets]] like [[Abyssal whip]] " +
-        "so the player can click through to the wiki.\n\n" +
-        "You have access to the OSRS Wiki. When wiki context is provided, base your answers on it " +
-        "but add your own practical advice on top. Don't just regurgitate wiki text — be the friend " +
-        "who reads the wiki FOR you and tells you what actually matters.\n\n" +
-        "Keep responses short unless the player clearly wants a deep dive. " +
-        "A 2-sentence answer that nails it beats a 10-paragraph essay.";
+        "You are GnomeGPT, an Old School RuneScape companion in the RuneLite sidebar.\n\n" +
+        "RULES:\n" +
+        "1. ONLY state facts you can back up from the wiki context provided. If no wiki context " +
+        "is given for a topic, say you're not sure and suggest checking the wiki.\n" +
+        "2. NEVER invent quests, items, monsters, locations, or game mechanics. If you don't " +
+        "know something, say so. Making things up is the worst thing you can do.\n" +
+        "3. For moneymaking questions, ONLY recommend methods from the OSRS Wiki money making guides " +
+        "if wiki context is provided. Don't guess at GP/hr rates.\n" +
+        "4. Keep responses SHORT — 2-4 sentences unless they ask for detail. Players are mid-grind.\n" +
+        "5. Use [[double brackets]] around item/quest/monster names to create wiki links. " +
+        "Don't add URLs in parentheses — the brackets handle it.\n" +
+        "6. Use OSRS slang naturally (gp, xp, kc, bis, spec, etc).\n" +
+        "7. Be direct and have opinions, but only when grounded in real game knowledge.\n" +
+        "8. Light humor welcome. Never condescending.\n\n" +
+        "You have access to the OSRS Wiki. Base your answers on the wiki context provided. " +
+        "Add practical advice on top, but never contradict or go beyond what the wiki says.";
 
     @Inject
     private ClientToolbar clientToolbar;
@@ -65,6 +63,7 @@ public class GnomeGptPlugin extends Plugin
     private final ChatHistory chatHistory = new ChatHistory();
     private final OsrsWikiClient wikiClient = new OsrsWikiClient();
     private final GePriceClient geClient = new GePriceClient();
+    private final HiscoresClient hiscoresClient = new HiscoresClient();
     private final OpenAiProvider openAiProvider = new OpenAiProvider();
     private final AnthropicProvider anthropicProvider = new AnthropicProvider();
     private final OllamaProvider ollamaProvider = new OllamaProvider();
@@ -149,12 +148,30 @@ public class GnomeGptPlugin extends Plugin
         {
             try
             {
+                // 1. Wiki context
                 String wikiContext = "";
                 if (config.wikiLookup())
                 {
                     try
                     {
-                        wikiContext = wikiClient.searchAndFetch(trimmed, config.maxWikiResults());
+                        // For moneymaking queries, also search the money making guide
+                        String query = trimmed;
+                        if (trimmed.toLowerCase().contains("money") ||
+                            trimmed.toLowerCase().contains("gp/h") ||
+                            trimmed.toLowerCase().contains("gold") ||
+                            trimmed.toLowerCase().contains("earning"))
+                        {
+                            wikiContext = wikiClient.searchAndFetch("Money making guide", 2);
+                            String additional = wikiClient.searchAndFetch(trimmed, config.maxWikiResults());
+                            if (!additional.isEmpty())
+                            {
+                                wikiContext += additional;
+                            }
+                        }
+                        else
+                        {
+                            wikiContext = wikiClient.searchAndFetch(trimmed, config.maxWikiResults());
+                        }
                     }
                     catch (Exception e)
                     {
@@ -162,10 +179,29 @@ public class GnomeGptPlugin extends Plugin
                     }
                 }
 
-                List<ChatMessage> conversation = buildConversation(wikiContext);
+                // 2. Player stats
+                String playerContext = "";
+                String rsn = config.rsn();
+                if (rsn != null && !rsn.trim().isEmpty())
+                {
+                    try
+                    {
+                        playerContext = hiscoresClient.getPlayerStats(rsn);
+                    }
+                    catch (Exception e)
+                    {
+                        log.warn("Hiscores lookup failed for: {}", rsn, e);
+                    }
+                }
+
+                // 3. Build conversation
+                List<ChatMessage> conversation = buildConversation(wikiContext, playerContext);
+
+                // 4. Call LLM
                 LlmProvider provider = getProvider();
                 String response = provider.chat(conversation, config.model());
 
+                // 5. Display
                 ChatMessage assistantMsg = new ChatMessage(ChatMessage.Role.ASSISTANT, response);
                 chatHistory.addMessage(assistantMsg);
                 panel.addMessage(assistantMsg);
@@ -186,7 +222,7 @@ public class GnomeGptPlugin extends Plugin
         });
     }
 
-    private List<ChatMessage> buildConversation(String wikiContext)
+    private List<ChatMessage> buildConversation(String wikiContext, String playerContext)
     {
         List<ChatMessage> conversation = new ArrayList<>();
 
@@ -196,9 +232,21 @@ public class GnomeGptPlugin extends Plugin
             systemPrompt = DEFAULT_SYSTEM_PROMPT;
         }
 
+        if (!playerContext.isEmpty())
+        {
+            systemPrompt += "\n\n--- Player Stats ---\n" + playerContext +
+                "\nUse these stats to tailor your advice (e.g. don't suggest methods " +
+                "requiring 90 Slayer if they're level 50).";
+        }
+
         if (!wikiContext.isEmpty())
         {
             systemPrompt += "\n\n--- OSRS Wiki Context ---\n" + wikiContext;
+        }
+        else
+        {
+            systemPrompt += "\n\nNo wiki context was found for this query. " +
+                "Be extra careful not to make things up. If unsure, say so.";
         }
 
         conversation.add(new ChatMessage(ChatMessage.Role.SYSTEM, systemPrompt));

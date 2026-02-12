@@ -87,9 +87,28 @@ public interface GnomeGptConfig extends Config
     }
 
     @ConfigSection(
+        name = "Character",
+        description = "Your OSRS character",
+        position = 1
+    )
+    String characterSection = "characterSection";
+
+    @ConfigItem(
+        keyName = "rsn",
+        name = "Username (RSN)",
+        description = "Your RuneScape name — GnomeGPT will remember it and look up your stats",
+        section = characterSection,
+        position = 0
+    )
+    default String rsn()
+    {
+        return "";
+    }
+
+    @ConfigSection(
         name = "Behavior",
         description = "Configure GnomeGPT behavior",
-        position = 1
+        position = 2
     )
     String behaviorSection = "behaviorSection";
 
