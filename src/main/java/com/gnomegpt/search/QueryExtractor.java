@@ -153,9 +153,13 @@ public class QueryExtractor
         {
             queries.add(primary + " strategy");
         }
-        if (lower.contains("gear") || lower.contains("setup") || lower.contains("equipment") || lower.contains("bis"))
+        if (lower.contains("gear") || lower.contains("setup") || lower.contains("equipment") ||
+            lower.contains("bis") || lower.contains("what to wear") || lower.contains("loadout"))
         {
             queries.add(primary + " equipment");
+            // Also try the strategy page for bosses
+            queries.add(primary + " strategy");
+            queries.add(primary + "/Strategies");
         }
 
         return queries;

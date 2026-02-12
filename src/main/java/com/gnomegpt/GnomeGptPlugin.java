@@ -335,6 +335,26 @@ public class GnomeGptPlugin extends Plugin
                         List<String> queries = QueryExtractor.extractMultiple(trimmed);
                         StringBuilder wikiBuilder = new StringBuilder();
 
+                        // For gear/setup questions, try to fetch strategy pages directly
+                        if (lower.contains("gear") || lower.contains("setup") ||
+                            lower.contains("equipment") || lower.contains("bis") ||
+                            lower.contains("loadout") || lower.contains("what to wear"))
+                        {
+                            String primaryTerm = QueryExtractor.extract(trimmed);
+                            try
+                            {
+                                String stratPage = wikiClient.fetchStrategyPage(primaryTerm);
+                                if (!stratPage.isEmpty())
+                                {
+                                    wikiBuilder.append(stratPage);
+                                }
+                            }
+                            catch (Exception e)
+                            {
+                                log.debug("Strategy page fetch failed for: {}", primaryTerm);
+                            }
+                        }
+
                         for (String query : queries)
                         {
                             String result = wikiClient.searchAndFetch(query,

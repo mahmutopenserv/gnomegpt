@@ -138,4 +138,32 @@ public class OsrsWikiClient
         }
         return context.toString();
     }
+
+    /**
+     * Try to fetch a boss/monster strategy page directly.
+     * Strategy pages are typically at "Boss_name/Strategies".
+     */
+    public String fetchStrategyPage(String bossName) throws IOException
+    {
+        // Try "Name/Strategies" format
+        String strategyTitle = bossName.trim() + "/Strategies";
+        String content = getPageContent(strategyTitle);
+        if (!content.isEmpty())
+        {
+            return "=== " + strategyTitle + " ===\n" + content + "\n\n";
+        }
+
+        // Try searching for "boss strategy"
+        List<String> results = search(bossName + " strategy", 1);
+        if (!results.isEmpty())
+        {
+            content = getPageContent(results.get(0));
+            if (!content.isEmpty())
+            {
+                return "=== " + results.get(0) + " ===\n" + content + "\n\n";
+            }
+        }
+
+        return "";
+    }
 }
